@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 class ReasoningAgent:
     def __init__(self):
-        genai.configure(api_key="AIzaSyBbI_jI4_Xw3tvS9oWdK2f--At012t80YM")
+        genai.configure(api_key="")
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def summarize(self, search_results, memory_context="", long_term_memory=""):
