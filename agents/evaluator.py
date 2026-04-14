@@ -4,7 +4,7 @@ import google.generativeai as genai
 
 class EvaluatorAgent:
     def __init__(self):
-        genai.configure(api_key="AIzaSyBbI_jI4_Xw3tvS9oWdK2f--At012t80YM")
+        genai.configure(api_key="")
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def evaluate(self, query, answer):
