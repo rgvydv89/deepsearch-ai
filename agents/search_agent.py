@@ -7,7 +7,7 @@ from tools.utils import clean_search_query
 class SearchAgent:
     def __init__(self):
         load_dotenv()
-        self.client = TavilyClient(api_key="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")
+        self.client = TavilyClient(api_key="")
 
     def run(self, query: str):
         clean_query = clean_search_query(query)

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 class PlannerAgent:
     def __init__(self):
         load_dotenv()
-        genai.configure(api_key="AIzaSyBbI_jI4_Xw3tvS9oWdK2f--At012t80YM")
+        genai.configure(api_key="")
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def create_plan(self, user_query: str):
