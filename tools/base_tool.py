@@ -1,0 +1,6 @@
+class BaseTool:
+    def __init__(self, name):
+        self.name = name
+
+    def run(self, query):
+        raise NotImplementedError
