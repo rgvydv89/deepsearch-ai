@@ -4,36 +4,32 @@ def planner_node(state, planner):
     return state
 
 
-def executor_node(state, executor, decision_agent):
-    print("[Node] Executor (FORCED SEARCH MODE)")
+def executor_node(state, executor, memory_context):
+    print("[Node] Executor (SMART MODE)")
 
-    for step in state.plan:
-        if not isinstance(step, str):
-            continue
+    # 🔥 Use ORIGINAL query (correct design for now)
+    query = state.query
 
-        print("[DEBUG] Executing step:", step)
+    result = executor.execute_step(query, memory_context)
 
-        # 🔥 FORCE SEARCH (no decision agent for now)
-        result = executor.execute_step(step)
+    if result and "results" in result:
+        state.results.extend(result["results"])
+    else:
+        print("[DEBUG] No results returned")
 
-        if result and "results" in result:
-            # print("[DEBUG] Results received:", len(result["results"]))
-            state.results.extend(result["results"])
-        else:
-            print("[DEBUG] No results returned")
-        
-        print("[FINAL DEBUG] Results count:", len(state.results))
+    print("[FINAL DEBUG] Results count:", len(state.results))
 
     return state
 
 
-def reasoning_node(state, reasoning_agent, session_context, long_term_context):
+def reasoning_node(state, reasoning_agent, memory_context, long_term_context=""):
     print("[Node] Reasoning")
 
     state.final_answer = reasoning_agent.summarize(
+        state.query,
         state.results,
-        memory_context=session_context,
-        long_term_memory=long_term_context
+        memory_context,
+        long_term_context
     )
 
     return state

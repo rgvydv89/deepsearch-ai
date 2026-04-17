@@ -2,19 +2,17 @@ class SessionMemory:
     def __init__(self):
         self.history = []
 
-    def add(self, user_query, response):
-        self.history.append({
-            "query": user_query,
-            "response": response
-        })
+    def add(self, query, answer):
+        self.history.append(f"User: {query}")
+        self.history.append(f"Assistant: {answer}")
 
-    def get_context(self, last_n=3):
-        context = ""
+    def get_context(self):
+        return "\n".join(self.history[-10:])
 
-        for item in self.history[-last_n:]:
-            context += f"""
-            User: {item['query']}
-            Assistant: {item['response']}
-            """
+        context = []
 
-        return context.strip()
+        for item in self.history[-5:]:
+            context.append(f"User: {item['query']}")
+            context.append(f"Assistant: {item['answer']}")
+
+        return "\n".join(context)

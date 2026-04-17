@@ -1,35 +1,81 @@
-from memory.session_memory import SessionMemory
-from memory.vector_store import VectorStore
+import re
+import asyncio
+
+from agents.decision_agent import DecisionAgent
 from agents.planner import PlannerAgent
-from agents.search_agent import SearchAgent
 from agents.reasoning_agent import ReasoningAgent
 from agents.executor import ExecutorAgent
-from agents.evaluator import EvaluatorAgent
-from tools.utils import deduplicate_results
-from agents.decision_agent import DecisionAgent
+from agents.critic_agent import CriticAgent, parse_critic_response
+from agents.quality_agent import QualityAgent
+
+from memory.session_memory import SessionMemory
+from memory.vector_store import VectorStore
 
 from orchestrator.state import AgentState
-from orchestrator.nodes import *
+from orchestrator.message import Message
+
+from mcp.server import MCPServer
+from mcp.client import MCPClient
+
+from tools.utils import deduplicate_results
 
 
 class Orchestrator:
     def __init__(self):
-        # ✅ Agents
-        self.planner = PlannerAgent()
-        self.search_agent = SearchAgent()
-        self.reasoning_agent = ReasoningAgent()
-        self.evaluator = EvaluatorAgent()
-        self.decision_agent = DecisionAgent()
-        self.executor = ExecutorAgent(self.search_agent)
+        self.mcp_server = MCPServer()
+        self.mcp_client = MCPClient(self.mcp_server)
 
-        # ✅ Memory
+        self.decision_agent = DecisionAgent()
+        self.executor = ExecutorAgent(self.mcp_client, self.decision_agent)
+        self.planner = PlannerAgent()
+        self.reasoning_agent = ReasoningAgent()
+        self.critic = CriticAgent()
+        self.quality_agent = QualityAgent()
+
         self.session_memory = SessionMemory()
         self.vector_store = VectorStore()
 
-    def run(self, user_query: str):
+    def is_math_query(self, query):
+        pattern = r'^\s*\d+(\s*[\+\-\*/]\s*\d+)+\s*$'
+        return re.match(pattern, query)
+
+    async def run(self, user_query: str):
         state = AgentState(user_query)
 
-        # 🧠 Memory
+        # ALWAYS DEFINE QUALITY
+        quality = None
+
+        # =========================================
+        # FAST PATH (Math)
+        # =========================================
+        if self.is_math_query(user_query):
+            print("[FAST PATH] Math detected")
+
+            response = self.mcp_client.call(
+                "calculator",
+                {"expression": user_query}
+            )
+
+            results = response.get("results", [])
+            result = results[0].get("content", "") if results else ""
+
+            quality = self.quality_agent.evaluate(
+                user_query,
+                str(result),
+                steps_count=1,
+                tool_calls=1
+            )
+
+            return {
+                "final_answer": str(result),
+                "score": 10,
+                "feedback": "Direct calculation",
+                "quality": quality
+            }
+
+        # =========================================
+        # 🧠 MEMORY
+        # =========================================
         session_context = self.session_memory.get_context()
 
         long_term_results = self.vector_store.search(user_query)
@@ -37,37 +83,97 @@ class Orchestrator:
             [item for sublist in long_term_results for item in sublist]
         )
 
-        # 🔥 GRAPH EXECUTION
-        state = planner_node(state, self.planner)
-        state = executor_node(state, self.executor, self.decision_agent)
+        # =========================================
+        # 🔥 MCP FLOW
+        # =========================================
+        print("[Node] Orchestrator → Planner")
 
-        state.results = deduplicate_results(state.results)
-
-        print("[DEBUG] Total results:", len(state.results))
-
-        state = reasoning_node(
-            state, self.reasoning_agent, session_context, long_term_context
+        planner_msg = Message(
+            sender="Orchestrator",
+            receiver="Planner",
+            content=user_query
         )
 
-        state = evaluation_node(state, self.evaluator, user_query)
+        planner_response = self.planner.handle(planner_msg)
 
-        # 🔁 Retry loop
-        if state.score < 6:
-            print("[Graph] Retry triggered")
+        steps = planner_response.content or [user_query]
 
-            state = reasoning_node(
-                state,
-                self.reasoning_agent,
-                session_context,
-                long_term_context + "\nImprove answer"
+        print("[Node] Planner → Executor")
+
+        executor_msg = Message(
+            sender="Planner",
+            receiver="Executor",
+            content=steps
+        )
+
+        executor_response = await self.executor.handle(executor_msg)
+
+        results = executor_response.content.get("results", [])
+        results = deduplicate_results(results)
+
+        print("[DEBUG] Total results:", len(results))
+
+        # =========================================
+        # 🧠 REASONING
+        # =========================================
+        reasoning_msg = Message(
+            sender="Executor",
+            receiver="Reasoning",
+            content={
+                "query": user_query,
+                "results": results,
+                "memory": session_context,
+                "long_term": long_term_context
+            }
+        )
+
+        reasoning_response = self.reasoning_agent.handle(reasoning_msg)
+        state.final_answer = reasoning_response.content.get("final_answer", "")
+
+        # =========================================
+        # 🔁 CRITIC LOOP
+        # =========================================
+        for i in range(3):
+            print(f"[Critic Loop] Iteration {i+1}")
+
+            critic_response = self.critic.review(user_query, state.final_answer)
+            score, feedback = parse_critic_response(critic_response)
+
+            state.score = score
+            state.feedback = feedback
+
+            if score >= 7:
+                break
+
+            state.final_answer = self.reasoning_agent.improve(
+                user_query,
+                state.final_answer,
+                feedback
             )
 
-        # 🧠 Store memory
+        # =========================================
+        # 📊 QUALITY AGENT
+        # =========================================
+        print("[QualityAgent] Evaluating response...")
+
+        metrics = self.executor.get_metrics()
+
+        quality = self.quality_agent.evaluate(
+            user_query,
+            state.final_answer,
+            metrics.get("steps", 0),
+            metrics.get("tool_calls", 0)
+        )
+
+        # =========================================
+        # 🧠 STORE MEMORY
+        # =========================================
         self.session_memory.add(user_query, state.final_answer)
-        self.vector_store.add(user_query, state.final_answer)
+        self.vector_store.add(user_query, str(state.final_answer))
 
         return {
             "final_answer": state.final_answer,
             "score": state.score,
-            "feedback": state.feedback
+            "feedback": state.feedback,
+            "quality": quality
         }
