@@ -1,5 +1,4 @@
 steps:
-  # Install dependencies
   - name: 'python:3.10'
     entrypoint: bash
     args:
@@ -8,27 +7,26 @@ steps:
         pip install -r requirements.txt || true
         pip install flake8 black isort pytest
 
-  # Lint check
   - name: 'python:3.10'
     entrypoint: bash
     args: ['-c', 'flake8 .']
 
-  # Format check
   - name: 'python:3.10'
     entrypoint: bash
     args: ['-c', 'black --check .']
 
-  # Import check
   - name: 'python:3.10'
     entrypoint: bash
     args: ['-c', 'isort --check-only .']
 
-  # Unit tests
   - name: 'python:3.10'
     entrypoint: bash
     args: ['-c', 'pytest tests/unit']
 
-  # 🔥 Agent Evaluation (WHITEPAPER CORE)
   - name: 'python:3.10'
     entrypoint: bash
     args: ['-c', 'pytest tests/evaluation']
+
+# 🔥 FIX HERE
+options:
+  logging: CLOUD_LOGGING_ONLY
