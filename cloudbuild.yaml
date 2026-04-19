@@ -1,34 +1,29 @@
 steps:
-  # Install dependencies
   - name: 'python:3.10'
     entrypoint: bash
+    env:
+      - PYTHONPATH=.
     args:
       - -c
       - |
+        echo "Installing dependencies..."
         pip install -r requirements.txt || true
         pip install flake8 black isort pytest
 
-  # Lint check
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'flake8 .']
+        echo "Running flake8..."
+        flake8 .
 
-  # Format check
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'black --check .']
+        echo "Checking formatting..."
+        black --check .
 
-  # Import check
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'isort --check-only .']
+        echo "Checking imports..."
+        isort --check-only .
 
-  # Unit tests
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'pytest tests/unit']
+        echo "Running unit tests..."
+        pytest tests/unit
 
-  # 🔥 Agent Evaluation (WHITEPAPER CORE)
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'pytest tests/evaluation']
+        echo "Running AI evaluation..."
+        pytest tests/evaluation
+
+options:
+  logging: CLOUD_LOGGING_ONLY
