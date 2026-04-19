@@ -1,6 +1,8 @@
 steps:
   - name: 'python:3.10'
     entrypoint: bash
+    env:
+      - PYTHONPATH=.
     args:
       - -c
       - |
