@@ -1,6 +1,8 @@
 import os
+
 from dotenv import load_dotenv
 from tavily import TavilyClient
+
 from tools.utils import clean_search_query
 
 
@@ -15,23 +17,14 @@ class SearchAgent:
         print("[DEBUG] Searching for:", clean_query)
 
         try:
-            response = self.client.search(
-                query=clean_query,
-                search_depth="basic"
-            )
+            response = self.client.search(query=clean_query, search_depth="basic")
 
             results = response.get("results", [])
 
             print("[DEBUG] Raw Tavily response:", response)
 
-            return {
-                "query": clean_query,
-                "results": results
-            }
+            return {"query": clean_query, "results": results}
 
         except Exception as e:
             print("[ERROR] Tavily failed:", str(e))
-            return {
-                "query": clean_query,
-                "results": []
-            }
+            return {"query": clean_query, "results": []}

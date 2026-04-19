@@ -1,14 +1,12 @@
 import asyncio
+
 from tools.calculator_tool import CalculatorTool
 from tools.search_tool import SearchTool
 
 
 class ToolRegistry:
     def __init__(self):
-        self.tools = {
-            "calculator": CalculatorTool(),
-            "search": SearchTool()
-        }
+        self.tools = {"calculator": CalculatorTool(), "search": SearchTool()}
 
     def get_tool(self, tool_name):
         return self.tools.get(tool_name)

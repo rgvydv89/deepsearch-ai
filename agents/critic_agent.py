@@ -1,6 +1,8 @@
 import os
+
 import google.generativeai as genai
 from dotenv import load_dotenv
+
 
 class CriticAgent:
     def __init__(self):
@@ -36,7 +38,7 @@ Feedback: <text>
 
         response = self.model.generate_content(prompt)
         return response.text
-    
+
 
 def parse_critic_response(text):
     score = 5
