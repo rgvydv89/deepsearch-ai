@@ -4,29 +4,24 @@ steps:
     args:
       - -c
       - |
+        echo "Installing dependencies..."
         pip install -r requirements.txt || true
         pip install flake8 black isort pytest
 
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'flake8 .']
+        echo "Running flake8..."
+        flake8 .
 
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'black --check .']
+        echo "Checking formatting..."
+        black --check .
 
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'isort --check-only .']
+        echo "Checking imports..."
+        isort --check-only .
 
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'pytest tests/unit']
+        echo "Running unit tests..."
+        pytest tests/unit
 
-  - name: 'python:3.10'
-    entrypoint: bash
-    args: ['-c', 'pytest tests/evaluation']
+        echo "Running AI evaluation..."
+        pytest tests/evaluation
 
-# 🔥 FIX HERE
 options:
   logging: CLOUD_LOGGING_ONLY
