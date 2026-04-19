@@ -4,10 +4,8 @@ class SearchTool:
 
     input_schema = {
         "type": "object",
-        "properties": {
-            "query": {"type": "string"}
-        },
-        "required": ["query"]
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
     }
 
     def execute(self, query):
@@ -16,7 +14,7 @@ class SearchTool:
         return [
             {
                 "title": f"Result for {query}",
-                "url": f"https://example.com/{query.replace(' ', '_')}",  # ✅ FIX
-                "content": f"Information about {query}"
+                "url": f"https://example.com/{query.replace(' ', '_')}",
+                "content": f"Information about {query}",
             }
         ]

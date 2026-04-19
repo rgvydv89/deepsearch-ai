@@ -1,4 +1,5 @@
 import os
+
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -43,8 +44,4 @@ class EvaluatorAgent:
             except:
                 pass
 
-        return {
-            "score": score,
-            "feedback": text
-        }
-
+        return {"score": score, "feedback": text}

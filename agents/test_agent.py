@@ -4,6 +4,7 @@ import re
 # TOOLS
 # ======================
 
+
 class CalculatorTool:
     def run(self, query):
         try:
@@ -23,15 +24,13 @@ class SearchTool:
 # TOOL REGISTRY
 # ======================
 
-tool_registry = {
-    "calculator": CalculatorTool(),
-    "search": SearchTool()
-}
+tool_registry = {"calculator": CalculatorTool(), "search": SearchTool()}
 
 
 # ======================
 # EXECUTOR
 # ======================
+
 
 class ExecutorAgent:
     def __init__(self, tool_registry):
@@ -49,6 +48,7 @@ class ExecutorAgent:
 # ======================
 # DECISION (NO LLM FOR NOW)
 # ======================
+
 
 class DecisionAgent:
     def decide_tool(self, query):

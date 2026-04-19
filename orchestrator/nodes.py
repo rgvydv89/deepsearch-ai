@@ -26,10 +26,7 @@ def reasoning_node(state, reasoning_agent, memory_context, long_term_context="")
     print("[Node] Reasoning")
 
     state.final_answer = reasoning_agent.summarize(
-        state.query,
-        state.results,
-        memory_context,
-        long_term_context
+        state.query, state.results, memory_context, long_term_context
     )
 
     return state

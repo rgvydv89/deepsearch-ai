@@ -9,7 +9,7 @@ class ResearchAgent:
             f"{query} overview",
             f"{query} advantages",
             f"{query} disadvantages",
-            f"{query} comparison"
+            f"{query} comparison",
         ]
 
         all_results = []

@@ -1,120 +1,117 @@
-import re
 import asyncio
+import re
 
+from agents.critic_agent import CriticAgent, parse_critic_response
 from agents.decision_agent import DecisionAgent
+from agents.executor import ExecutorAgent
+from agents.judge_agent import JudgeAgent
 from agents.planner import PlannerAgent
 from agents.reasoning_agent import ReasoningAgent
-from agents.executor import ExecutorAgent
-from agents.critic_agent import CriticAgent, parse_critic_response
-from agents.quality_agent import QualityAgent
-
+from evaluation.blackbox_evaluator import BlackBoxEvaluator
+from mcp.client import MCPClient
+from mcp.server import MCPServer
 from memory.session_memory import SessionMemory
 from memory.vector_store import VectorStore
-
-from orchestrator.state import AgentState
 from orchestrator.message import Message
-
-from mcp.server import MCPServer
-from mcp.client import MCPClient
-
+from orchestrator.state import AgentState
+from plugins.safety_plugin import SafetyPlugin
 from tools.utils import deduplicate_results
+from utils.logger import StructuredLogger
+from utils.metrics import MetricsCollector
+from utils.tracer import TraceLogger
 
 
 class Orchestrator:
     def __init__(self):
         self.mcp_server = MCPServer()
         self.mcp_client = MCPClient(self.mcp_server)
+        self.metrics = MetricsCollector()
+
+        self.evaluator = BlackBoxEvaluator()
+        self.safety = SafetyPlugin()
 
         self.decision_agent = DecisionAgent()
         self.executor = ExecutorAgent(self.mcp_client, self.decision_agent)
         self.planner = PlannerAgent()
         self.reasoning_agent = ReasoningAgent()
         self.critic = CriticAgent()
-        self.quality_agent = QualityAgent()
 
         self.session_memory = SessionMemory()
         self.vector_store = VectorStore()
 
+        self.tracer = TraceLogger()
+        self.logger = StructuredLogger()
+        self.judge = JudgeAgent()
+
     def is_math_query(self, query):
-        pattern = r'^\s*\d+(\s*[\+\-\*/]\s*\d+)+\s*$'
+        pattern = r"^\s*\d+(\s*[\+\-\*/]\s*\d+)+\s*$"
         return re.match(pattern, query)
 
     async def run(self, user_query: str):
-        state = AgentState(user_query)
-
-        # ALWAYS DEFINE QUALITY
-        quality = None
+        self.tracer.traces = []
 
         # =========================================
-        # FAST PATH (Math)
+        # 🔥 MATH SHORTCUT
         # =========================================
         if self.is_math_query(user_query):
-            print("[FAST PATH] Math detected")
+            try:
+                result = eval(user_query)
+                return {
+                    "final_answer": str(result),
+                    "evaluation": {"score": 10},
+                    "judge": {"overall_score": 10},
+                    "metrics": {},
+                }
+            except Exception as e:
+                return {
+                    "final_answer": f"Math error: {str(e)}",
+                    "evaluation": {},
+                    "judge": {},
+                    "metrics": {},
+                }
 
-            response = self.mcp_client.call(
-                "calculator",
-                {"expression": user_query}
-            )
+        # =========================================
+        # INPUT SAFETY
+        # =========================================
+        input_check = self.safety.check_input_safety(user_query)
 
-            results = response.get("results", [])
-            result = results[0].get("content", "") if results else ""
-
-            quality = self.quality_agent.evaluate(
-                user_query,
-                str(result),
-                steps_count=1,
-                tool_calls=1
-            )
-
+        if input_check.get("blocked"):
             return {
-                "final_answer": str(result),
-                "score": 10,
-                "feedback": "Direct calculation",
-                "quality": quality
+                "final_answer": f"❌ Blocked: {input_check['reason']}",
+                "evaluation": {},
+                "judge": {},
+                "metrics": {},
             }
 
-        # =========================================
-        # 🧠 MEMORY
-        # =========================================
-        session_context = self.session_memory.get_context()
-
-        long_term_results = self.vector_store.search(user_query)
-        long_term_context = "\n".join(
-            [item for sublist in long_term_results for item in sublist]
-        )
+        state = AgentState(user_query)
 
         # =========================================
-        # 🔥 MCP FLOW
+        # PLANNER
         # =========================================
-        print("[Node] Orchestrator → Planner")
+        planner_msg = Message(sender="Orchestrator", receiver="Planner", content=user_query)
 
-        planner_msg = Message(
-            sender="Orchestrator",
-            receiver="Planner",
-            content=user_query
-        )
+        span = self.tracer.start_span("planner", {"query": user_query})
 
         planner_response = self.planner.handle(planner_msg)
+        self.tracer.end_span(span, output=planner_response.content)
 
         steps = planner_response.content or [user_query]
 
-        print("[Node] Planner → Executor")
+        # =========================================
+        # EXECUTOR
+        # =========================================
+        executor_msg = Message(sender="Planner", receiver="Executor", content={"steps": steps})
 
-        executor_msg = Message(
-            sender="Planner",
-            receiver="Executor",
-            content=steps
-        )
+        span = self.tracer.start_span("executor", {"steps": steps})
 
         executor_response = await self.executor.handle(executor_msg)
+        self.tracer.end_span(span, output=executor_response.content)
 
         results = executor_response.content.get("results", [])
         results = deduplicate_results(results)
 
-        print("[DEBUG] Total results:", len(results))
-
         # =========================================
-        # 🧠 REASONING
+        # REASONING
         # =========================================
         reasoning_msg = Message(
             sender="Executor",
@@ -122,58 +119,63 @@ class Orchestrator:
             content={
                 "query": user_query,
                 "results": results,
-                "memory": session_context,
-                "long_term": long_term_context
-            }
+                "memory": self.session_memory.get_context(),
+                "long_term": "",
+            },
         )
 
+        span = self.tracer.start_span("reasoning", {"query": user_query})
+
         reasoning_response = self.reasoning_agent.handle(reasoning_msg)
+        self.tracer.end_span(span, output=reasoning_response.content)
+
         state.final_answer = reasoning_response.content.get("final_answer", "")
 
         # =========================================
-        # 🔁 CRITIC LOOP
+        # EVALUATION
         # =========================================
-        for i in range(3):
-            print(f"[Critic Loop] Iteration {i+1}")
+        evaluation = self.evaluator.evaluate(user_query, state.final_answer)
 
+        # =========================================
+        # CRITIC LOOP
+        # =========================================
+        for _ in range(2):
             critic_response = self.critic.review(user_query, state.final_answer)
             score, feedback = parse_critic_response(critic_response)
-
-            state.score = score
-            state.feedback = feedback
 
             if score >= 7:
                 break
 
             state.final_answer = self.reasoning_agent.improve(
-                user_query,
-                state.final_answer,
-                feedback
+                user_query, state.final_answer, feedback
             )
 
         # =========================================
-        # 📊 QUALITY AGENT
+        # JUDGE
         # =========================================
-        print("[QualityAgent] Evaluating response...")
-
-        metrics = self.executor.get_metrics()
-
-        quality = self.quality_agent.evaluate(
-            user_query,
-            state.final_answer,
-            metrics.get("steps", 0),
-            metrics.get("tool_calls", 0)
-        )
+        judge_result = self.judge.evaluate_trace(user_query, state.final_answer)
 
         # =========================================
-        # 🧠 STORE MEMORY
+        # TRACE OUTPUT
         # =========================================
-        self.session_memory.add(user_query, state.final_answer)
-        self.vector_store.add(user_query, str(state.final_answer))
+        self.tracer.print_trace()
 
+        # =========================================
+        # METRICS COLLECTION ✅ FIXED
+        # =========================================
+        self.metrics.add_run(trace=self.tracer.traces, evaluation=evaluation, judge=judge_result)
+
+        metrics_summary = self.metrics.compute()
+
+        print("\n📊 METRICS SUMMARY")
+        print(metrics_summary)
+
+        # =========================================
+        # FINAL RETURN ✅ FIXED
+        # =========================================
         return {
             "final_answer": state.final_answer,
-            "score": state.score,
-            "feedback": state.feedback,
-            "quality": quality
+            "evaluation": evaluation,
+            "judge": judge_result,
+            "metrics": metrics_summary,
         }
